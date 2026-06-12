@@ -37,6 +37,9 @@ Generated outputs currently checked in:
 - `output/fe8j.lds`
 - `output/fe8j-reference.s`
 - `output/fe8j-defines.event`
+- `output/fe6.lds`
+- `output/fe6-reference.s`
+- `output/fe6-defines.event`
 
 ## Developer Guide
 
