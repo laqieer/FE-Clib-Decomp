@@ -11,23 +11,32 @@ decomp ELF:
 ```sh
 python3 utility/make_lyn_reference.py \
   ../fireemblem8u/fireemblem8.elf \
-  --lyn-reference output/fe8u-decomp-reference.s \
-  --ea-defines output/fe8u-decomp-defines.event \
+  --lyn-reference output/fe8u-reference.s \
+  --ea-defines output/fe8u-defines.event \
   --snapshot "laqieer/fireemblem8u master"
 ```
 
 Assemble the reference and use it with `lyn`:
 
 ```sh
-arm-none-eabi-as output/fe8u-decomp-reference.s -o output/fe8u-decomp-reference.o
-lyn hack.o output/fe8u-decomp-reference.o > hack.lyn.event
+arm-none-eabi-as output/fe8u-reference.s -o output/fe8u-reference.o
+lyn hack.o output/fe8u-reference.o > hack.lyn.event
 ```
 
 Use the generated Event Assembler definitions directly from `.event` scripts:
 
 ```event
-#include "fe8u-decomp-defines.event"
+#include "fe8u-defines.event"
 ```
+
+Generated outputs currently checked in:
+
+- `output/fe8u.lds`
+- `output/fe8u-reference.s`
+- `output/fe8u-defines.event`
+- `output/fe8j.lds`
+- `output/fe8j-reference.s`
+- `output/fe8j-defines.event`
 
 ## Developer Guide
 
