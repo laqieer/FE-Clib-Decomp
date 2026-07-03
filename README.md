@@ -1,6 +1,14 @@
 # FE-Clib-Decomp
 C library generated from decomp projects for Fire Emblem modding
 
+## Powered by
+
+The checked-in `.lds`, `lyn` reference `.s`, and Event Assembler `.event` outputs are generated from these decompilation ELFs:
+
+- [FE6: The Binding Blade](https://github.com/FireEmblemUniverse/fireemblem6j) - supplies FE6 symbols from `fireemblem6j/fe6.elf`.
+- [FE8U: The Sacred Stones](https://github.com/laqieer/fireemblem8u) - supplies FE8U symbols from `fireemblem8u/fireemblem8.elf`.
+- [FE8J: 聖魔の光石 / Seima no Kouseki](https://github.com/laqieer/fireemblem8j) - supplies FE8J symbols from `fireemblem8j/fireemblem8.elf`.
+
 ## User Guide
 
 `INCLUDE output/xxx.lds` in linker script
