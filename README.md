@@ -21,7 +21,7 @@ python3 utility/make_lyn_reference.py \
   ../fireemblem8u/fireemblem8.elf \
   --lyn-reference output/fe8u-reference.s \
   --ea-defines output/fe8u-defines.event \
-  --snapshot "laqieer/fireemblem8u master"
+  --snapshot "laqieer/fireemblem8u <full-commit-sha>"
 ```
 
 Assemble the reference and use it with `lyn`:
@@ -51,8 +51,32 @@ Generated outputs currently checked in:
 
 ## Developer Guide
 
-```
+```sh
 pip install -r utility/requirements.txt
 python3 utility/make_linker_script.py -h
 python3 utility/make_lyn_reference.py -h
+```
+
+Regenerate all nine committed outputs atomically from clean sibling source repositories:
+
+```sh
+python3 utility/regenerate.py \
+  --fe6-ref "$(git -C ../fireemblem6j rev-parse HEAD)" \
+  --fe8u-ref "$(git -C ../fireemblem8u rev-parse HEAD)" \
+  --fe8j-ref "$(git -C ../fireemblem8j rev-parse HEAD)"
+```
+
+Verify deterministic regeneration without replacing the committed files:
+
+```sh
+python3 utility/regenerate.py --check \
+  --fe6-ref "$(git -C ../fireemblem6j rev-parse HEAD)" \
+  --fe8u-ref "$(git -C ../fireemblem8u rev-parse HEAD)" \
+  --fe8j-ref "$(git -C ../fireemblem8j rev-parse HEAD)"
+```
+
+Check the committed files without requiring source ELFs:
+
+```sh
+python3 utility/check_outputs.py
 ```

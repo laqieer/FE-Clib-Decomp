@@ -5,12 +5,14 @@ import argparse
 import os
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
 FUNCTION_TYPES = {"STT_FUNC"}
 DATA_TYPES = {"STT_OBJECT", "STT_COMMON", "STT_NOTYPE"}
 GLOBAL_BINDS = {"STB_GLOBAL", "STB_WEAK"}
+BIND_PRIORITY = {"STB_LOCAL": 0, "STB_WEAK": 1, "STB_GLOBAL": 2}
 
 
 @dataclass(frozen=True)
@@ -20,12 +22,27 @@ class ExportSymbol:
     kind: str
 
 
+@dataclass(frozen=True)
+class SymbolCandidate:
+    symbol: ExportSymbol
+    raw_name: str
+    bind: str
+    symbol_type: str
+
+
 def is_exportable_name(name):
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_.$]*$", name)) and not name.startswith(".")
 
 
 def normalized_name(name):
     return name.replace(".", "_")
+
+
+def normalized_address(address):
+    address = int(address)
+    if not 0 <= address <= 0xFFFFFFFF:
+        raise ValueError(f"symbol address is outside the 32-bit GBA address space: {address}")
+    return address
 
 
 def symbol_kind(symbol):
@@ -37,37 +54,95 @@ def symbol_kind(symbol):
     return None
 
 
-def iter_export_symbols(elf_file, include_local=False):
+def symbol_candidate(symbol):
+    raw_name = symbol.name
+    if not raw_name or not is_exportable_name(raw_name):
+        return None
+
+    address = normalized_address(symbol["st_value"])
+    if address == 0:
+        return None
+
+    kind = symbol_kind(symbol)
+    if kind is None:
+        return None
+
+    return SymbolCandidate(
+        symbol=ExportSymbol(normalized_name(raw_name), address, kind),
+        raw_name=raw_name,
+        bind=symbol["st_info"]["bind"],
+        symbol_type=symbol["st_info"]["type"],
+    )
+
+
+def candidate_priority(candidate):
+    return (
+        BIND_PRIORITY.get(candidate.bind, -1),
+        candidate.symbol_type != "STT_NOTYPE",
+        candidate.raw_name == candidate.symbol.name,
+    )
+
+
+def resolve_export_symbols(candidates):
+    grouped = defaultdict(list)
+    for candidate in candidates:
+        grouped[candidate.symbol.name].append(candidate)
+
+    resolved = []
+    conflicts = {}
+
+    for name, group in grouped.items():
+        best_priority = max(candidate_priority(candidate) for candidate in group)
+        best = [candidate for candidate in group if candidate_priority(candidate) == best_priority]
+        definitions = {(candidate.symbol.address, candidate.symbol.kind) for candidate in best}
+
+        if len(definitions) != 1:
+            conflicts[name] = tuple(best)
+            continue
+
+        address, kind = definitions.pop()
+        resolved.append(ExportSymbol(name, address, kind))
+
+    return resolved, conflicts
+
+
+def iter_export_symbols(elf_file, include_local=False, on_conflict=None):
     from elftools.elf.elffile import ELFFile
 
     elf = ELFFile(elf_file)
-    seen = set()
+    candidates = []
 
     for section in elf.iter_sections():
         if section["sh_type"] != "SHT_SYMTAB":
             continue
 
         for symbol in section.iter_symbols():
-            name = normalized_name(symbol.name)
-            address = symbol["st_value"]
-
-            if not name or address == 0 or name in seen or not is_exportable_name(name):
-                continue
-
             bind = symbol["st_info"]["bind"]
+            symbol_type = symbol["st_info"]["type"]
+
             if not include_local and bind not in GLOBAL_BINDS:
                 continue
-
-            kind = symbol_kind(symbol)
-            if kind is None:
+            if include_local and bind == "STB_LOCAL" and symbol_type == "STT_NOTYPE":
                 continue
 
-            seen.add(name)
-            yield ExportSymbol(name=name, address=address, kind=kind)
+            candidate = symbol_candidate(symbol)
+            if candidate is not None:
+                candidates.append(candidate)
+
+    symbols, conflicts = resolve_export_symbols(candidates)
+    if on_conflict:
+        for name, conflict in sorted(conflicts.items()):
+            on_conflict(name, conflict)
+
+    yield from symbols
 
 
 def sorted_symbols(symbols):
     return sorted(symbols, key=lambda symbol: (symbol.address, symbol.name))
+
+
+def format_address(address):
+    return f"0x{normalized_address(address):08X}"
 
 
 def write_lyn_reference(outfile, symbols, source_name, snapshot):
@@ -91,7 +166,7 @@ def write_lyn_reference(outfile, symbols, source_name, snapshot):
 
     for symbol in symbols:
         macro = "SET_FUNC" if symbol.kind == "func" else "SET_DATA"
-        outfile.write(f"{macro} {symbol.name}, 0x{symbol.address:08X}\n")
+        outfile.write(f"{macro} {symbol.name}, {format_address(symbol.address)}\n")
 
 
 def write_ea_defines(outfile, symbols, source_name, snapshot):
@@ -103,7 +178,7 @@ def write_ea_defines(outfile, symbols, source_name, snapshot):
 
     width = max((len(symbol.name) for symbol in symbols), default=0)
     for symbol in symbols:
-        outfile.write(f"#define {symbol.name.ljust(width)} 0x{symbol.address:08X}\n")
+        outfile.write(f"#define {symbol.name.ljust(width)} {format_address(symbol.address)}\n")
 
 
 def main():
@@ -120,7 +195,14 @@ def main():
     if not args.lyn_reference and not args.ea_defines:
         parser.error("at least one of --lyn-reference or --ea-defines is required")
 
-    symbols = sorted_symbols(iter_export_symbols(args.infile, args.include_local))
+    conflicts = []
+    symbols = sorted_symbols(
+        iter_export_symbols(
+            args.infile,
+            args.include_local,
+            on_conflict=lambda name, candidates: conflicts.append((name, candidates)),
+        )
+    )
     if not symbols:
         parser.error("no exportable symbols found")
 
@@ -134,7 +216,10 @@ def main():
         with args.ea_defines.open("w", newline="\n") as outfile:
             write_ea_defines(outfile, symbols, source_name, args.snapshot)
 
-    print(f"Extracted {len(symbols)} symbols", file=sys.stderr)
+    print(
+        f"Extracted {len(symbols)} symbols; skipped {len(conflicts)} ambiguous names",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":
